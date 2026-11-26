@@ -23,3 +23,11 @@ KvIterator (valid/key/value/next/seekToFirst/seek/close), LevelDB style, impleme
 MemTable, every SSTable, and later the merging iterator. Rejected: java.util.Iterator (no seek,
 no peek, no close; open file handles block deletes on Windows).
 Readers snapshot the last *published* sequence number, not the last assigned one.
+
+## Decision 5: WAL format and recovery
+Record = [crc32c:4][len:4][type:1][seq:8][keyLen:4][key][valLen:4][value], big-endian; crc covers
+everything after the first 8 bytes. Built in one ByteBuffer and written in one write loop.
+Replay stops at the first torn or corrupt record and reports the valid byte count; recovery
+truncates the file there before appending. Sync policy is a flag (per-write force vs manual
+sync); group commit is a planned optimisation. Caveat: some consumer SSDs acknowledge fsync
+early, so power-loss durability can't be fully proven on a laptop.
