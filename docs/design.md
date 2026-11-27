@@ -31,3 +31,10 @@ Replay stops at the first torn or corrupt record and reports the valid byte coun
 truncates the file there before appending. Sync policy is a flag (per-write force vs manual
 sync); group commit is a planned optimisation. Caveat: some consumer SSDs acknowledge fsync
 early, so power-loss durability can't be fully proven on a laptop.
+
+## Decision 6: Write path and recovery
+put/delete under one write lock: assign seq, append to WAL, apply to MemTable, then publish the
+seq (volatile). Readers snapshot the published seq and take no lock. I/O error on the log puts
+the engine in a failed state (no more writes until reopen). Recovery replays the WAL into a
+fresh MemTable, then truncates the log at the last valid byte so new records can't land behind
+garbage. Known test gap: the WAL-before-MemTable order is not yet fault-injection tested. I also suggest adding one line: "If MemTable insertion fails after the WAL append, the engine fail-stops.
