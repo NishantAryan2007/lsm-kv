@@ -36,3 +36,6 @@ one volatile immutable View (memtable + table list) and snapshot the published s
 
 ## Decision 11: Compaction plan
 Leveled compaction, built in stages: (a) MergingIterator (heap k-way merge; no recency tie-break needed because InternalKey order is total), (b) dedupe + tombstone dropping, first by merging all tables into one (output is the bottom, so tombstones can be dropped safely), (c) engine integration with reader-safe retirement of old Views (needed on Windows: open files cannot be deleted), then real levels with per-file key ranges. Invariant: there are no user-visible snapshots, so compaction keeps only the newest version of each key.
+
+## Decision 12: Compaction rule
+Per user key keep only the newest version (no user-visible snapshots exist). A tombstone is dropped only when the caller guarantees no older data for any key lives below the output (bottom-most compaction); otherwise it must be written, or an older table's value resurfaces. Covered by a test that demonstrates the resurrection bug.
