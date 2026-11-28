@@ -172,4 +172,44 @@ class SSTableTest {
         Files.write(tiny, Arrays.copyOf(data, 10));
         assertThrows(IOException.class, () -> SSTableReader.open(tiny));
     }
+
+    @Test
+    void bloomFilterSavesDiskReadsForAbsentKeys() throws IOException {
+        MemTable mem = new MemTable();
+        for (int i = 0; i < 10_000; i++) {
+            mem.put(b("present-" + i), b("v" + i), i + 1);
+        }
+        try (SSTableReader t = SSTableReader.open(build(mem, 4096))) {
+            for (int i = 0; i < 10_000; i++) {
+                assertEquals(FOUND, t.get(b("present-" + i), 20_000).kind());
+            }
+            long readsForPresent = t.blockReadCount();
+            assertEquals(10_000, readsForPresent);   // one block per hit
+
+            for (int i = 0; i < 10_000; i++) {
+                assertEquals(MemTable.Kind.ABSENT, t.get(b("absent-" + i), 20_000).kind());
+            }
+            long extra = t.blockReadCount() - readsForPresent;
+            assertTrue(extra < 300, "filter let through " + extra + " of 10000 absent lookups");
+        }
+    }
+
+    @Test
+    void tombstonedKeysAreInTheFilter() throws IOException {
+        MemTable mem = new MemTable();
+        mem.delete(b("gone"), 5);
+        try (SSTableReader t = SSTableReader.open(build(mem, 64))) {
+            assertEquals(MemTable.Kind.DELETED, t.get(b("gone"), 10).kind());
+        }
+    }
+
+    @Test
+    void corruptFilterIsDetectedOnOpen() throws IOException {
+        byte[] data = Files.readAllBytes(smallTable());
+        long filterOffset = ByteBuffer.wrap(data).getLong(data.length - SSTableReader.FOOTER_SIZE + 16);
+        data[(int) filterOffset] ^= 1;
+        Path bad = dir.resolve("bad-filter.sst");
+        Files.write(bad, data);
+        assertThrows(IOException.class, () -> SSTableReader.open(bad));
+    }
 }

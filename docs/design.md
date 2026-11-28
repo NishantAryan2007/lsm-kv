@@ -26,3 +26,6 @@ put/delete under one write lock: assign seq, append to WAL, apply to MemTable, t
 
 ## Decision 8: SSTable file layout
 [data block][crc32c] ... [index block][crc32c][footer 40B = indexOffset, indexLen, filterOffset,filterLen, magic "LSMKV001"]. Index reuses the block format: key = last key of each data block,value = (offset, length). Every block is checksummed and verified on read. Footer is fixed-size at the end because the index location is only known after the data is written. Reads use positional FileChannel reads (thread-safe, no mmap, no Windows file locking issue). Writer opens with CREATE_NEW; temp-file + atomic rename is the flush step's job.
+
+## Decision 9: Bloom filters
+One filter per SSTable over distinct user keys, tombstones included (otherwise a skipped delete lets an older file resurrect the value). 10 bits/key, 7 probes (~1% false positives) from one MurmurHash64A hash via double hashing. The writer collects key hashes and builds the filter at finish(), sized exactly. Stored as a checksummed block between data and index; the footer holds its offset and length (length 0 = no filter). Verified by a test that counts block reads.

@@ -7,6 +7,7 @@ import java.nio.channels.FileChannel;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 import java.util.Arrays;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.zip.CRC32C;
 
 /** Read-only, thread-safe view of a table written by SSTableWriter. */
@@ -18,13 +19,16 @@ public final class SSTableReader implements AutoCloseable {
     private static final MemTable.Lookup DELETED = new MemTable.Lookup(MemTable.Kind.DELETED, null);
 
     private final FileChannel channel;
-    private final long dataEnd;        // where data blocks stop (= index offset)
+    private final long dataEnd;        // where data blocks stop
     private final BlockReader index;
+    private final BloomFilter filter;  // null if the file has none
+    private final AtomicLong blockReads = new AtomicLong();
 
-    private SSTableReader(FileChannel channel, long dataEnd, BlockReader index) {
+    private SSTableReader(FileChannel channel, long dataEnd, BlockReader index, BloomFilter filter) {
         this.channel = channel;
         this.dataEnd = dataEnd;
         this.index = index;
+        this.filter = filter;
     }
 
     public static SSTableReader open(Path path) throws IOException {
@@ -37,12 +41,22 @@ public final class SSTableReader implements AutoCloseable {
             ByteBuffer footer = readFully(ch, size - FOOTER_SIZE, FOOTER_SIZE);
             long indexOffset = footer.getLong(0);
             long indexLen = footer.getLong(8);
+            long filterOffset = footer.getLong(16);
+            long filterLen = footer.getLong(24);
             if (footer.getLong(32) != MAGIC) {
                 throw new IOException("not an sstable: bad magic");
             }
             checkRange(indexOffset, indexLen, size - FOOTER_SIZE);
             BlockReader idx = readBlock(ch, indexOffset, (int) indexLen);
-            return new SSTableReader(ch, indexOffset, idx);
+
+            BloomFilter filter = null;
+            long dataEnd = indexOffset;
+            if (filterLen > 0) {
+                checkRange(filterOffset, filterLen, indexOffset);
+                filter = BloomFilter.fromBytes(readChecked(ch, filterOffset, (int) filterLen));
+                dataEnd = filterOffset;
+            }
+            return new SSTableReader(ch, dataEnd, idx, filter);
         } catch (IOException | RuntimeException e) {
             ch.close();
             throw e;
@@ -51,8 +65,11 @@ public final class SSTableReader implements AutoCloseable {
 
     /** Newest version of userKey with seq <= snapshotSeq, in this table only. */
     public MemTable.Lookup get(byte[] userKey, long snapshotSeq) throws IOException {
+        if (filter != null && !filter.mightContain(userKey)) {
+            return ABSENT;                              // definitely not in this file
+        }
         InternalKey probe = new InternalKey(userKey, snapshotSeq, ValueType.PUT);
-        int bi = index.seek(probe);                 // first block whose LAST key >= probe
+        int bi = index.seek(probe);                     // first block whose LAST key >= probe
         if (bi == index.count()) {
             return ABSENT;
         }
@@ -71,6 +88,11 @@ public final class SSTableReader implements AutoCloseable {
         return new MemTable.Lookup(MemTable.Kind.FOUND, blk.valueAt(i));
     }
 
+    /** Number of data blocks read from disk so far (for tests and benchmarks). */
+    public long blockReadCount() {
+        return blockReads.get();
+    }
+
     /** Valid only while this reader is open. I/O errors surface as UncheckedIOException. */
     public KvIterator iterator() {
         return new Cursor();
@@ -86,6 +108,7 @@ public final class SSTableReader implements AutoCloseable {
         long off = h.getLong(0);
         int len = h.getInt(8);
         checkRange(off, len, dataEnd);
+        blockReads.incrementAndGet();
         return readBlock(channel, off, len);
     }
 
@@ -106,7 +129,8 @@ public final class SSTableReader implements AutoCloseable {
         return buf;
     }
 
-    private static BlockReader readBlock(FileChannel ch, long offset, int len) throws IOException {
+    /** Reads len bytes plus the trailing CRC32C and verifies it; returns just the len bytes. */
+    private static byte[] readChecked(FileChannel ch, long offset, int len) throws IOException {
         ByteBuffer buf = readFully(ch, offset, len + 4);
         byte[] raw = buf.array();
 
@@ -115,8 +139,11 @@ public final class SSTableReader implements AutoCloseable {
         if ((int) crc.getValue() != buf.getInt(len)) {
             throw new IOException("block checksum mismatch at offset " + offset);
         }
+        return Arrays.copyOf(raw, len);
+    }
 
-        return new BlockReader(Arrays.copyOf(raw, len));
+    private static BlockReader readBlock(FileChannel ch, long offset, int len) throws IOException {
+        return new BlockReader(readChecked(ch, offset, len));
     }
 
     private final class Cursor implements KvIterator {
