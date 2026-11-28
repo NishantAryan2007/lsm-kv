@@ -9,3 +9,4 @@ Step 10a: BlockBuilder + BlockReader, 34 tests passing.
 Step 10b: SSTableWriter + SSTableReader, 42 tests passing.
 Step 10c: BloomFilter in SSTable, 49 tests passing.
 Step 11: flush + MANIFEST + orphan cleanup, 59 tests passing.
+Step 12a: MergingIterator, 63 tests passing.
