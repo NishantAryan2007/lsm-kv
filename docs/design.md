@@ -23,3 +23,6 @@ put/delete under one write lock: assign seq, append to WAL, apply to MemTable, t
 
 ## Decision 7: SSTable block format
 ~4 KB data blocks. Entry = [keyLen][userKey][trailer = seq<<8|type][valLen][value]. Block = entries,offset array, entry count; binary search inside the block via the offsets. No prefix compression for now (measure first). The file index will hold the LAST key of each block, because versions of one user key can straddle blocks; lookup = first block whose last key >= probe.
+
+## Decision 8: SSTable file layout
+[data block][crc32c] ... [index block][crc32c][footer 40B = indexOffset, indexLen, filterOffset,filterLen, magic "LSMKV001"]. Index reuses the block format: key = last key of each data block,value = (offset, length). Every block is checksummed and verified on read. Footer is fixed-size at the end because the index location is only known after the data is written. Reads use positional FileChannel reads (thread-safe, no mmap, no Windows file locking issue). Writer opens with CREATE_NEW; temp-file + atomic rename is the flush step's job.
