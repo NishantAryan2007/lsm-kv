@@ -257,10 +257,12 @@ public final class LsmEngine implements AutoCloseable {
             w.finish();   // fsyncs the file
         }
         Manifest.fsyncDirectory(dir);
+        CrashPoints.at("flush:sst-written");
 
         // 2. a fresh WAL for the writes that follow
         long newWalNo = nextFileNumber++;
         WalWriter newWal = new WalWriter(walPath(dir, newWalNo), syncOnWrite);
+        CrashPoints.at("flush:wal-created");
 
         // 3. commit: the new MANIFEST makes the table live and retires the old WAL
         List<Table> newTables = new ArrayList<>(current.tables().size() + 1);
@@ -268,6 +270,7 @@ public final class LsmEngine implements AutoCloseable {
         newTables.addAll(current.tables());
         Manifest.write(dir, new Manifest.State(nextFileNumber, newWalNo, lastAssignedSeq, numbersOf(newTables)));
         // ---- commit point: from here on, recovery starts from the new state ----
+        CrashPoints.at("flush:committed");
 
         // 4. swap in the new state, then delete the old WAL (it is just an orphan if this fails)
         WalWriter oldWal = wal;
@@ -276,6 +279,7 @@ public final class LsmEngine implements AutoCloseable {
         walNumber = newWalNo;
         view = new View(new MemTable(), List.copyOf(newTables));
         oldWal.close();
+        CrashPoints.at("flush:before-old-wal-delete");
         try {
             Files.deleteIfExists(walPath(dir, oldWalNo));
         } catch (IOException ignored) {
@@ -304,6 +308,7 @@ public final class LsmEngine implements AutoCloseable {
             w.finish();
         }
         Manifest.fsyncDirectory(dir);
+        CrashPoints.at("compact:output-written");
 
         List<Table> newTables;
         if (written == 0) {
@@ -314,8 +319,10 @@ public final class LsmEngine implements AutoCloseable {
         }
         Manifest.write(dir, new Manifest.State(nextFileNumber, walNumber, lastAssignedSeq, numbersOf(newTables)));
         // ---- commit point ----
+        CrashPoints.at("compact:committed");
 
         view = new View(current.mem(), newTables);   // same memtable: writes continue uninterrupted
+        CrashPoints.at("compact:before-retire");
         for (Table t : inputs) {
             t.retire();   // deleted when the last reader that may still be using it leaves
         }

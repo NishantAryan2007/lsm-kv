@@ -15,9 +15,9 @@ import static java.nio.file.StandardOpenOption.TRUNCATE_EXISTING;
 import static java.nio.file.StandardOpenOption.WRITE;
 
 /**
- * The database's table of contents. Layout: [crc32c:4][len:4][version:4][nextFileNumber:8]
- * [walNumber:8][lastSeq:8][tableCount:4][tableNumber:8 ...], tables newest first.
- * Replaced atomically; never edited in place.
+- The database's table of contents. Layout: [crc32c:4][len:4][version:4][nextFileNumber:8]
+- [walNumber:8][lastSeq:8][tableCount:4][tableNumber:8 ...], tables newest first.
+- Replaced atomically; never edited in place.
  */
 public final class Manifest {
     private Manifest() {}
@@ -86,7 +86,9 @@ public final class Manifest {
             }
             ch.force(true);
         }
+        CrashPoints.at("manifest:tmp-written");
         Files.move(tmp, target, StandardCopyOption.ATOMIC_MOVE);
+        CrashPoints.at("manifest:renamed");
         fsyncDirectory(dir);
     }
 

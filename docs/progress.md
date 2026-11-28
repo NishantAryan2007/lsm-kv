@@ -13,3 +13,5 @@ Step 12a: MergingIterator, 63 tests passing.
 Step 12b: Compactor (newest version + tombstone rule), 68 tests passing.
 Step 12c: compaction in the engine, per-table refcounts, 73 tests passing.
 Step 13: range scan with snapshot isolation, 78 tests passing.
+Step 14: CI (Linux + Windows) and crash fault injection, ~114 tests passing.
+Step 15a: DbBench load generator, baseline recorded in docs/benchmarks.md.
