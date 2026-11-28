@@ -43,3 +43,7 @@ Per user key keep only the newest version (no user-visible snapshots exist). A t
 ## Decision 13: Reader-safe compaction
 Each Table is reference counted (1 = owned by the live set). Readers tryAcquire before touching a table (CAS, never revives a closed table) and release after; a failed acquire means the view is stale, so get() re-reads snapshot and view and retries (get is side-effect free). Compaction swaps in a new View, then retire()s the inputs: the last reference holder closes the file and deletes it (required on Windows). Counting is per table, not per View, because tables are shared between
 views. Compaction (all tables into one, tombstones dropped: the output is the bottom and the memtable is newer) commits like a flush: fsync output, MANIFEST rewrite, publish view, retire inputs.Synchronous for now. A leveled policy will replace the merge-everything policy.
+
+## Decision 14: Range scan
+scan(start, end) returns a RangeIterator at a snapshot: it reads publishedSeq before the view, merges the memtable and every table, and per user key takes the newest version with seq <= snapshot, hiding tombstones. Seek target for a user key is InternalKey(key, Long.MAX_VALUE) because newest sorts first. The scan holds a reference on every table in its view until closed (retry if a compaction retired one before acquisition), so compaction can run underneath it. 
+Known cost: versions are skipped linearly.

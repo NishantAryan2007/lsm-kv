@@ -12,10 +12,10 @@ import java.util.Objects;
 import java.util.Optional;
 
 /**
- * MemTable + WAL + SSTables + MANIFEST + compaction. One writer at a time (writeLock), lock-free
- * readers. Flush and compaction are synchronous (inside the write lock). After any I/O error on a
- * write the engine refuses further writes; reopen to recover. The engine owns its directory:
- * files that the MANIFEST does not reference are deleted on open.
+- MemTable + WAL + SSTables + MANIFEST + compaction. One writer at a time (writeLock), lock-free
+- readers. Flush and compaction are synchronous (inside the write lock). After any I/O error on a
+- write the engine refuses further writes; reopen to recover. The engine owns its directory:
+- files that the MANIFEST does not reference are deleted on open.
  */
 public final class LsmEngine implements AutoCloseable {
     private static final int BLOCK_SIZE = 4096;
@@ -152,8 +152,8 @@ public final class LsmEngine implements AutoCloseable {
     }
 
     /**
-     * Empty if the key is absent or deleted. Newest data wins: memtable first, then tables newest
-     * first. If a table was retired by a compaction while we were looking, start over on the new view.
+- Empty if the key is absent or deleted. Newest data wins: memtable first, then tables newest
+- first. If a table was retired by a compaction while we were looking, start over on the new view.
      */
     public Optional<byte[]> get(byte[] key) throws IOException {
         Objects.requireNonNull(key, "key");
@@ -184,6 +184,45 @@ public final class LsmEngine implements AutoCloseable {
             return result.kind() == MemTable.Kind.FOUND
                     ? Optional.of(result.value().clone())
                     : Optional.empty();
+        }
+    }
+
+    /**
+- Snapshot-consistent range scan over [start, end); null bounds are unbounded. The caller must
+- close the iterator. Writes made after this call returns are not visible to it.
+     */
+    public RangeIterator scan(byte[] start, byte[] end) throws IOException {
+        while (true) {
+            long snapshot = publishedSeq;       // before the view, same rule as get()
+            View v = view;
+
+            List<Table> acquired = new ArrayList<>(v.tables().size());
+            boolean stale = false;
+            for (Table t : v.tables()) {
+                if (!t.tryAcquire()) {
+                    stale = true;
+                    break;
+                }
+                acquired.add(t);
+            }
+            if (stale) {
+                for (Table t : acquired) {
+                    t.release();
+                }
+                continue;                       // a compaction retired a table: retry on the new view
+            }
+
+            List<KvIterator> sources = new ArrayList<>();
+            sources.add(v.mem().iterator());
+            for (Table t : acquired) {
+                sources.add(t.reader().iterator());
+            }
+            Runnable release = () -> {
+                for (Table t : acquired) {
+                    t.release();
+                }
+            };
+            return new VisibleIterator(new MergingIterator(sources), start, end, snapshot, release);
         }
     }
 
@@ -245,8 +284,8 @@ public final class LsmEngine implements AutoCloseable {
     }
 
     /**
-     * Caller holds writeLock. Merges every table into one. The output is the bottom of the tree
-     * (all tables are inputs and the memtable is newer), so tombstones can be dropped.
+- Caller holds writeLock. Merges every table into one. The output is the bottom of the tree
+- (all tables are inputs and the memtable is newer), so tombstones can be dropped.
      */
     private void compactAll() throws IOException {
         View current = view;
