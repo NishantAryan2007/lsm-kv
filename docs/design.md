@@ -39,3 +39,7 @@ Leveled compaction, built in stages: (a) MergingIterator (heap k-way merge; no r
 
 ## Decision 12: Compaction rule
 Per user key keep only the newest version (no user-visible snapshots exist). A tombstone is dropped only when the caller guarantees no older data for any key lives below the output (bottom-most compaction); otherwise it must be written, or an older table's value resurfaces. Covered by a test that demonstrates the resurrection bug.
+
+## Decision 13: Reader-safe compaction
+Each Table is reference counted (1 = owned by the live set). Readers tryAcquire before touching a table (CAS, never revives a closed table) and release after; a failed acquire means the view is stale, so get() re-reads snapshot and view and retries (get is side-effect free). Compaction swaps in a new View, then retire()s the inputs: the last reference holder closes the file and deletes it (required on Windows). Counting is per table, not per View, because tables are shared between
+views. Compaction (all tables into one, tombstones dropped: the output is the bottom and the memtable is newer) commits like a flush: fsync output, MANIFEST rewrite, publish view, retire inputs.Synchronous for now. A leveled policy will replace the merge-everything policy.

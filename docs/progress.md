@@ -11,3 +11,4 @@ Step 10c: BloomFilter in SSTable, 49 tests passing.
 Step 11: flush + MANIFEST + orphan cleanup, 59 tests passing.
 Step 12a: MergingIterator, 63 tests passing.
 Step 12b: Compactor (newest version + tombstone rule), 68 tests passing.
+Step 12c: compaction in the engine, per-table refcounts, 73 tests passing.
