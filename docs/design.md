@@ -29,3 +29,7 @@ put/delete under one write lock: assign seq, append to WAL, apply to MemTable, t
 
 ## Decision 9: Bloom filters
 One filter per SSTable over distinct user keys, tombstones included (otherwise a skipped delete lets an older file resurrect the value). 10 bits/key, 7 probes (~1% false positives) from one MurmurHash64A hash via double hashing. The writer collects key hashes and builds the filter at finish(), sized exactly. Stored as a checksummed block between data and index; the footer holds its offset and length (length 0 = no filter). Verified by a test that counts block reads.
+
+## Decision 10: Flush, MANIFEST and recovery
+The MANIFEST (atomically replaced: tmp, fsync, rename, dir-fsync) is the single source of truth: live tables (newest first), current WAL number, nextFileNumber, lastSeq. Flush order: write and fsync the SSTable, create the new WAL, write the MANIFEST (commit point), swap the in-memory View, delete the old WAL. Anything the MANIFEST does not reference is an orphan and is deleted on open. lastSeq is persisted so sequence numbers never restart below flushed data. Readers use
+one volatile immutable View (memtable + table list) and snapshot the published seq BEFORE the view. Flush is synchronous for now (writers stall); background flush with an immutable memtable and backpressure is planned. Directory fsync is skipped on Windows.

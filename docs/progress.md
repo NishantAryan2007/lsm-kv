@@ -8,3 +8,4 @@ Step 9: LsmEngine v0 (WAL + MemTable), 30 tests passing.
 Step 10a: BlockBuilder + BlockReader, 34 tests passing.
 Step 10b: SSTableWriter + SSTableReader, 42 tests passing.
 Step 10c: BloomFilter in SSTable, 49 tests passing.
+Step 11: flush + MANIFEST + orphan cleanup, 59 tests passing.

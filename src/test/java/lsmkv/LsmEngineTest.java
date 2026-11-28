@@ -59,7 +59,7 @@ class LsmEngineTest {
             db.put(b("k1"), b("v1"));
             db.put(b("k2"), b("v2"));
         }
-        Path wal = dir.resolve("wal.log");
+        Path wal = dir.resolve("000001.wal");
         try (FileChannel ch = FileChannel.open(wal, StandardOpenOption.WRITE)) {
             ch.truncate(Files.size(wal) - 3); // simulate a crash mid-record
         }
